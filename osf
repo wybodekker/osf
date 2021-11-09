@@ -1,0 +1,607 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+
+Version = '1.02'
+TREES = %w{TEXMFMAIN TEXMFLOCAL TEXMFHOME}
+MYNAME = 'osf'
+
+Help = 
+<<'DOC'
+= osf - generate oldstyle version of font(s)
+
+= Synopsis
+osf [options] [virfont [osfont]]	
+
+    virfont : name of the font to be converted
+    osfont  : name of font containing oldstyle digits
+
+Without arguments, arguments are taken from the data section
+Data section currently defines all txfonts and pxfonts
+
+== Options
+-h			print this help and exit
+-H, --help		show full documentation (use less!) and exit
+-V, --version		print version and exit
+-v, --verbose		be verbose
+-t, --tree=STRING	textree where fonts will be installed
+
+= Description
+osf converts one or more virtual font (|.vf| and |.tfm|) files, replacing
+the digits with old style variants. There are two ways to run the script:
+with one or two arguments or with no arguments at all.
+
+= Running with argument(s)
+The first argument, if any, is the name of the virtual font file to be
+converted. If a second argument is present, it is assumed to be the name of
+the virtual font file containing old style digits. If no second argument is
+present, the directory where the first argument's virtual font file lives
+is searched for other virtual font files containing old style digits and
+you are presented a list of those from which you can make a choice.
+
+The converted virtual font (|.vf|) files are stored in your working
+directory, together with the corresponding |.tfm| files. As a result, TeX
+documents compiled in that directory using the converting fonts (for
+example by using |\usepackage{pxfonts}|) will produce output with old
+style digits.
+
+= Running without any arguments
+If the script is run without arguments, a list is presented of predefined
+virtual font sets from which you can make your choice. Currently these are
+either the txfonts or the pxfonts.
+
+In this case, the new font collection is renamed by prefixing file names
+with |osf-| and a new style file is created, together with the necesssary
+font definition (|.fd|) files; these files, too, are named after the
+original files by prefixing them with |osf-|. Moreover, any
+|\DeclareFontFamily| commands in the |.fd| files which have
+an empty third parameter will get code in this parameter which
+makes it possible to use protruding characters by using
+|\protrudechars=1| in the TeX source.
+
+The new style file has two options to switch to oldstyle or
+table figures:
+
+osfigures	start with oldstyle figures (this is the default)
+tbfigures	start with table figures
+
+The style file also creates two commands with the same goal:
+\osfigures	witch to oldstyle figures
+\tbfigures	witch to table figures
+
+= Options
+--tree=directory	
+	the TeX tree where the new files are saved. By default, the 
+	environment variables TEXMFLOCAL VARTEXMF TEXMFHOME and HOMETEXMF are used, in
+	that order, until a writable directory is found.
+--verbose	
+	be (more) verbose, by listing all files created.
+
+= Testing your font
+Here is a LaTeX source that can be used to test your changes to
+the txfonts and the pxfonts:
+
+   \documentclass{article}
+   \usepackage{osf-txfonts}
+   \usepackage[papersize={90mm,105mm},margin=10mm]{geometry}
+   \parindent0pt
+   \def\text{Hello Wörld! 0123456789 }
+   \newcommand{\test}[2]{%
+      \def\Fam{Sans}\def\Arg{#2}
+      \ifx\Arg\Fam\let\Fam\sf\else\let\Fam\relax\fi
+      \begin{tabular}{ll}
+         \multicolumn{2}{l}{#1 #2}\\\hline
+         normal:          & \Fam\text\\ 
+         slanted:         & \Fam\textsl{\text}\\ 
+         italic:          & \Fam\textit{\text}\\ 
+         small caps:      & \Fam\textsc{\text}\\ 
+         bold normal:     & \Fam\textbf{\text}\\
+         bold italic:     & \Fam\textbf{\textit{\text}}\\
+         bold slanted:    & \Fam\textbf{\textsl{\text}}\\
+         bold small caps: & \Fam\textbf{\textsc{\text}}\\
+      \end{tabular}\\[2ex]
+   }
+   \pagestyle{empty}
+   
+   \begin{document}
+   \test{Oldstyle}{Roman}
+   \test{Oldstyle}{Sans}
+   \tbfigures
+   \test{Table}   {Roman}
+   \test{Table}   {Sans}
+   \end{document}
+
+= Author
+[Wybo Dekker](wybo@dekkerdocumenten.nl)
+
+= Copyright
+Released under the [GNU General Public License](www.gnu.org/copyleft/gpl.html)
+DOC
+
+require 'optparse'
+require 'fileutils'; include FileUtils
+
+class Hash
+   # return the sum of squares of the values of a hash
+   def sum_of_squares
+      s = 0
+      self.each { |x,y| s += y*y }
+      return s
+   end
+end
+
+def handle_options
+   ARGV.options do |opts|
+      opts.banner = "#{::MYNAME} - generate oldstyle version of font(s)\n\n"
+      opts.banner << "Usage: #{::MYNAME} [options] [virfont [osfont]]\n\n" 
+      opts.banner << "    virfont : name of the font to be converted\n"
+      opts.banner << "    osfont  : name of font containing oldstyle digits\n\n"
+      opts.separator "Without arguments, arguments are taken from the data section"
+      opts.separator "Data section currently defines all txfonts and pxfonts\n"
+      opts.summary_width=23 # 3x8-1
+      opts.summary_indent=''
+   
+      opts.separator "== Options"
+
+      opts.on('-h','print this help and exit') do
+         puts opts.to_a.delete_if { |x| x =~ /—$/}
+         exit
+      end
+   
+      opts.on('-H','--help','show full documentation (use less!) and exit') do
+         puts Help
+         exit
+      end
+   
+      opts.on('-V','--version','print version and exit') do
+         puts Version
+         exit
+      end
+   
+      opts.on('-v','--verbose','be verbose') do
+         @verbose = true
+      end
+   
+      opts.on('-t', '--tree=STRING', String,
+                    'textree where fonts will be installed'
+      ) do |v|
+         @tree = v
+      end
+
+      opts.on('-I','—') do
+         system("instscript #{MYNAME}") or
+            die 'the -I option is for developers only'
+         exit
+      end
+      opts.parse!
+   end or exit 1
+end
+
+# Check if a file has oldstyle digits
+# Typically, table digits have equal heights and zero depth
+# Oldstyle digits 0, 1, 2, 6, and 8 have zero depth, 
+# while 3, 4, 5, 7, and 9 have significant depths
+
+def has_oldstyle_digits(file)
+   indigit = false
+   ht = dp = 0
+   dif = Array.new
+   open("|vftovp #{file}").readlines.each { |line|
+      case line
+      when /CHARACTER C (\d)$/   then indigit = $1.to_i
+      when /CHARHT.* ([\d\.]+)/  then ht = $1.to_f
+      when /CHARDP.* ([\d\.]+)/  then dp = $1.to_f
+      when /MAP/ then 
+         if indigit
+            dif[indigit] = ht-dp
+            indigit = false
+         end
+      end
+   }
+   if dif.size > 0
+      if (dif[3]+dif[4]+dif[5]+dif[7]+dif[9])/
+         (dif[0]+dif[1]+dif[2]+dif[6]+dif[8]) > 0.9
+         return false
+      else
+         return true
+      end
+   else
+      return false
+   end
+end
+
+# find basename and directory of a virtual font file
+
+def findfont(name)
+   font = `kpsewhich #{name}.vf`.chomp
+   font == '' and raise(RuntimeError,"Could not find #{name}.vf",::MYNAME)
+   return File.basename(font,'.vf'), File.dirname(font)
+end
+
+# from a virtual <em>font</em>, isolate the digit sections and the
+# mapfont section defining them. Renumber the mapfont to <em>fontnr</em>
+# and change the SELECTION commands in the digits to point to it
+
+def find_mapfonts_and_digits(font,fontnr)
+   vpl = open("|vftovp #{font}.vf")
+   mapfonts = Array.new           # one of these is returned
+   digits = Array.new             # all returned
+   sel = -1                       # font used for digits
+   while line = vpl.gets
+      case line
+      when /MAPFONT D (\d+)/ then    # mapfont section?
+         i = $1.to_i
+         mapfonts[i] = line
+         while l = vpl.gets
+            mapfonts[i] += l
+            break if l =~ /^   \)/
+         end
+      when /CHARACTER C (\d)$/ then  # digit?
+         i = $1.to_i
+         digits[i] = line
+         while l = vpl.gets
+            if l =~ /SELECTFONT D (\d)/ 
+               sel = $1.to_i
+               l.sub!(/\d+/,fontnr.to_s)
+            end
+            digits[i] += l
+            break if l =~ /^   \)/
+         end
+      end
+   end
+   if sel == -1 then # no SELECTONT found?
+      sel = 0        # use the default
+      # insert SELECTFONT command in the digits
+      digits.each { |d|
+         d.sub!(/MAP$/,"MAP\n      (SELECTFONT D #{fontnr})")
+      }
+   end
+   # renumber the mapfont
+   mf = mapfonts[sel].sub(/MAPFONT D.*/,"MAPFONT D #{fontnr}")
+   return mf,digits
+end
+
+# list filename with TeX tree removed, if verbose
+def list(name)
+   @files_written.push(name.sub(/#{@tree}./,'   '))
+end
+
+# convert digits in virtual font file to old style
+# collection::   name of the font collection (like `pxfonts')
+# font::         font with table figures to be converted
+# oldstylefont:: font containing oldstyle figures 
+
+def convert_font(collection,font,oldstylefont)
+   # collection undefined: save in current dir
+   prefix = ''
+   vfdir = tfmdir = '.'
+   # if collection is defined, save files in user tree
+   if collection
+      prefix = 'osf-'
+      d = "#{@tree}/fonts/@/osf-#{collection}"
+      vfdir = d.sub(/@/,'vf')
+      tfmdir = d.sub(/@/,'tfm')
+      mkdir_p(vfdir) or
+         raise(RuntimeError,"Could not create directory #{dir}",::MYNAME)
+      mkdir_p(tfmdir)
+   end
+   # the new vpl file:
+   newvpl = open("/tmp/#{$$}.vpl","w")
+   maxfont = 0
+   # read the vpl file to be corrected:
+   vpl = open("|vftovp #{font}")
+   while line = vpl.gets
+      case line
+      when /MAPFONT D (\d+)/ then
+         # remember the maximum font ident
+         maxfont = [maxfont, $1.to_i].max
+         newvpl.print line
+      when /CHARACTER C \d/ then           # digit?
+         while l = vpl.gets                # skip to...
+            break if l =~ /^   \)/         # ... end of digit
+         end
+         next
+      else
+         # print everything else to the new vpl:
+         newvpl.print line
+      end
+   end
+   # append map font and digits from the old style virtual font
+   find_mapfonts_and_digits(oldstylefont,maxfont+1).flatten.each do |v|
+      newvpl.print v
+   end
+   
+   vpl.close
+   newvpl.close
+   name = prefix + font
+   vfname = "#{vfdir}/#{name}"
+   tfmname = "#{tfmdir}/#{name}"
+   system "vptovf /tmp/#{$$} #{vfname} #{tfmname} #{@devnull}"
+   list vfname + '.vf'
+   list tfmname + '.tfm'
+end
+
+# define the style file in terms of the names of:
+# collection:: the font collection (pxfonts, txfonts, ...)
+# roman::      the roman font (pxr, txr, ...)
+# sans::       the sans font (pxss, txss, ...)
+
+def style(collection,roman,sans)
+   return <<-EOF.gsub(/^      /,'')
+      \\RequirePackage{#{collection},t1enc}
+      
+      \\def\\tb@rm{#{roman}}
+      \\def\\tb@sf{#{sans}}
+      \\def\\osf@rm{osf-#{roman}}
+      \\def\\osf@sf{osf-#{sans}}
+      
+      \\newcommand{\\osfigures}{%
+        \\renewcommand{\\rmdefault}{\\osf@rm}%
+        \\renewcommand{\\sfdefault}{\\osf@sf}%
+        \\ifx\\f@family \\tb@rm \\rmfamily\\fi
+        \\ifx\\f@family \\tb@sf \\sffamily\\fi}
+      
+      \\newcommand{\\tbfigures}{%
+        \\renewcommand{\\rmdefault}{\\tb@rm}%
+        \\renewcommand{\\sfdefault}{\\tb@sf}%
+        \\ifx\\f@family \\osf@rm \\rmfamily\\fi
+        \\ifx\\f@family \\osf@sf \\sffamily\\fi}
+      
+      \\DeclareOption{osfigures}{
+         \\osfigures
+         \\let\\@Fam\\osfigures
+      }
+      \\DeclareOption{tbfigures}{
+         \\tbfigures
+         \\let\\@Fam\\tbfigures
+      }
+      \\ExecuteOptions{osfigures}
+      \\ProcessOptions
+      \\AtBeginDocument{\\@Fam}
+   EOF
+end
+
+handle_options
+
+if @tree
+   @tree.sub!(/^~/,ENV['HOME'])
+   FileTest.exist?(@tree)      or
+      raise(RuntimeError,"The TeX directory #{@tree} does not exist",MYNAME)
+   File.stat(@tree).directory? or
+      raise(RuntimeError,"#{@tree} is not a directory",MYNAME)
+   FileTest.writable?(@tree)   or
+      raise(RuntimeError,"The TeX directory #{@tree} is not writable",MYNAME)
+else
+   TREES.each { |tree|
+      tree = `kpsewhich --expand-var '$#{tree}'`.chomp
+      if FileTest.directory?(tree) && FileTest.writable?(tree)
+         @tree = tree
+         break
+      end
+   }
+   @tree or raise(RuntimeError,
+      "I could not find a writable TeX tree;\nI tried "+ TREES.join(', '),MYNAME)
+end
+
+@devnull = @verbose ? '' : '2>/dev/null'
+puts "Using TeX tree: #{@tree}" if @verbose
+
+@files_written = Array.new
+
+# list the fonts for which the DATA section contains ready input
+# this is used if no fonts are given on the command line
+
+predef = %w{pxfonts txfonts}
+
+if ARGV.size > 0   # one or two arguments, say pxr (and pcxr):
+   font,dir = findfont(ARGV[0])
+   # pxr, .../vf/public/pxfonts
+   has_oldstyle_digits("#{dir}/#{font}.vf") and
+      raise(RuntimeError,"#{font} has oldstyle digits already",MYNAME)
+   
+   if ARGV[1]
+      osfont,osdir = findfont(ARGV[1])
+      # pcxr, .../vf/public/pxfonts
+      has_oldstyle_digits("#{osdir}/#{osfont}.vf") or
+         raise(RuntimeError,"#{osfont} has no oldstyle digits",MYNAME)
+   else
+      # no oldstyle font given: propose one
+      osdir = dir
+      osf = Array.new
+      Dir["#{dir}/*.vf"].each { |fontfile| 
+         f = File.basename(fontfile,'.vf')
+         next if f == font
+         osf.push(f) if has_oldstyle_digits(fontfile)
+      }
+      # osf array contains all oldstyle fonts found
+      case osf.size
+         when 0
+            puts "I found no accompanying fonts with " +
+                 " old style digits in #{dir}"
+            exit(1)
+         when 1 
+             osfont = osf[0]
+         else 
+            # more than 1 found: find best matching name:
+            nearest = distance = 1000
+            puts "I found #{osf.size} accompanying fonts " + 
+                 "with old style digits:"
+            for i in 1..osf.size do 
+               f = osf[i-1]
+               h = Hash.new
+               for j in f.split('') do
+                  h[j] = (h[j] || 0) + 1
+               end
+               for j in font.split('') do
+                  h[j] = (h[j] || 0) - 1 
+                  h.delete(j) if h[j] == 0
+               end
+               printf("%2d %2d %s\n",i,h.sum_of_squares,f)
+               if h.sum_of_squares < distance
+                  nearest = i
+                  distance = h.sum_of_squares
+               end
+            end
+            puts "My guess is #{nearest} (#{osf[nearest-1]})"
+            print "Your guess [#{nearest}]: "
+            i = STDIN.gets.chomp
+            i = i == '' ? nearest : i.to_i
+            osfont = osf[i-1]
+      end
+   end
+   convert_font(nil,font,osfont)
+else
+   # no arguments: use DATA section
+   puts "#{predef.size} font conversions have been predefined"
+   (1..predef.size).each { |i|
+       puts "#{i} #{predef[i-1]}"
+   }
+   choice = 0
+   until choice > 0 && choice <= predef.size
+      print "Please make your choice [1]: "
+      STDOUT.flush
+      choice = STDIN.gets.to_i
+      choice = 1 if choice == 0
+   end
+   collection = predef[choice-1]
+   puts "Converting #{collection}" if @verbose
+   latexdir = "#{@tree}/tex/latex/osf-#{collection}" 
+   mkdir_p(latexdir) or
+      raise(RuntimeError,"Could not create directory #{latexdir}",MYNAME)
+   DATA.each { |line|
+      break if line.chomp == collection
+   }
+   roman_sans = Array.new # will names of roman and sans families
+                          # used for the style file
+   DATA.each { |line|
+      line.chomp!
+      case line
+      when '' then break
+      when /^fd\s/ then
+         fd,*pat = line.split.slice(1..-1)
+         # fd commands: roman must come first, sans second
+         # first pattern must be the name of the 
+         # roman/sans family
+         roman_sans.push(pat[0])
+         fd =~ /^t1/ or
+            raise(RuntimeError,".fd filename must start with 't1'",MYNAME)
+         infd = `kpsewhich #{fd}.fd`.chomp
+         raise(RuntimeError,"Could not find #{fd}.fd",MYNAME) if fd == ''
+         outfd = "#{latexdir}/#{fd.sub(/^t1/,'t1osf-')}.fd"
+         out = open(outfd,'w') or raise(RuntimeError,"Could not write to #{outfd}",MYNAME)
+         list outfd
+         open(infd).each { |l| 
+            # put prefix before all patterns:
+            for p in pat do 
+               l.gsub!(/(#{p})/,'osf-\1')
+            end
+            # modify \DeclareFontFamily commands so that
+            # protruding characters become possible:
+            l.sub!(/(\\DeclareFontFamily.*\{)\}/,'\1%'+<<-'EOF'
+
+              \rpcode\font `-=120
+              \rpcode\font `,=100
+              \rpcode\font `.=100
+              \rpcode\font `:=100
+              \rpcode\font `;=100
+              \rpcode\font 96=100 % quoteleft
+              \rpcode\font 39=100 % quoteright
+              \rpcode\font 147=250 % quotedblleft
+              \rpcode\font 148=250 % quotedblright
+              \rpcode\font 150=150 % endash
+              \rpcode\font 151=100 % emdash
+            }
+            EOF
+            )
+
+            out.print(l)
+         }
+         out.close
+      else
+         puts line if @verbose
+         font,osfont = line.split
+         # if the .vf exists from a previous run delete it,
+         # and its .tfm companion:
+         if FileTest.exist?("#{font}.vf") 
+            File.delete("#{font}.vf")
+            File.delete("#{font}.tfm")
+         end
+         convert_font(collection,font,osfont)
+      end
+   }
+   sty = "#{latexdir}/osf-#{collection}.sty"
+   list sty
+   out = open(sty,'w')
+   out.print style(collection,*roman_sans)
+   if @verbose
+      puts "\nFiles written to #{@tree}:"
+      puts @files_written.sort
+   end
+   system("updmap -user #{@verbose ? '' : '--quiet'} --enable Map #{collection}.map")
+end 
+
+__END__
+pxfonts
+fd         t1pxr pxr p1x
+fd         t1pxss pxss t1x
+p1xb       pcxb    
+p1xbi      pcxbi    
+p1xbsc     pcxb
+p1xbsl     pcxbsl    
+p1xi       pcxi    
+p1xr       pcxr    
+p1xsc      pcxr
+p1xsl      pcxsl    
+pxb        pcxb    
+pxbi       pcxbi    
+pxbsc      pcxb
+pxbsl      pcxbsl    
+pxi        pcxi    
+pxr        pcxr    
+pxsc       pcxr
+pxsl       pcxsl    
+
+txfonts
+fd         t1txr txr t1x
+fd         t1txss txss t1x
+t1xb       tcxb
+t1xbi      tcxbi
+t1xbsc     tcxb
+t1xbsl     tcxbsl
+t1xbss     tcxbss
+t1xbsssc   tcxbss
+t1xbsssl   tcxbsssl
+t1xi       tcxi
+t1xr       tcxr
+t1xsc      tcxr
+t1xsl      tcxsl
+t1xss      tcxss
+t1xsssc    tcxss
+t1xsssl    tcxsssl
+txb        tcxb
+txbi       tcxbi
+txbsc      tcxb
+txbsl      tcxbsl
+txbss      tcxbss
+txbsssc    tcxbss
+txbsssl    tcxbsssl
+txi        tcxi
+txr        tcxr
+txsc       tcxr
+txsl       tcxsl
+txss       tcxss
+txsssc     tcxss
+txsssl     tcxsssl
+tyxb       tcxb
+tyxbi      tcxbi
+tyxbsc     tcxb
+tyxbsl     tcxbsl
+tyxbss     tcxbss
+tyxbsssc   tcxbss
+tyxbsssl   tcxbsssl
+tyxi       tcxi
+tyxr       tcxr
+tyxsc      tcxr
+tyxsl      tcxsl
+tyxss      tcxss
+tyxsssc    tcxss
+tyxsssl    tcxsssl

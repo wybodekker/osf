@@ -1,0 +1,36 @@
+\documentclass{article}
+\usepackage{osf-pxfonts}
+\usepackage[
+   papersize={100mm,100mm},
+   margin=10mm
+]{geometry}
+\parindent0pt
+\def\text{0123456789 Hello Wörld! }
+\let\SL\textsl
+\let\IT\textit
+\let\SC\textsc
+\let\B\textbf
+\newcommand{\test}[2]{%
+   \def\Fam{Sans}\def\Arg{#2}
+   \ifx\Arg\Fam\let\Fam\sf\else\let\Fam\relax\fi
+   \begin{tabular}{ll}
+      \multicolumn{2}{l}{#1 #2}\\\hline
+      normal:          & \Fam\text\\ 
+      slanted:         & \Fam\SL{\text}\\ 
+      italic:          & \Fam\IT{\text}\\ 
+      small caps:      & \Fam\SC{\text}\\ 
+      bold normal:     & \Fam\B{\text}\\
+      bold italic:     & \Fam\B{\IT{\text}}\\
+      bold slanted:    & \Fam\B{\SL{\text}}\\
+      bold small caps: & \Fam\B{\SC{\text}}\\
+   \end{tabular}\\[2ex]
+}
+\pagestyle{empty}
+
+\begin{document}
+\test{Oldstyle}{Roman}
+\test{Oldstyle}{Sans}
+\tbfigures
+\test{Table}   {Roman}
+\test{Table}   {Sans}
+\end{document}
