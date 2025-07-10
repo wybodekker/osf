@@ -2,10 +2,10 @@
 # encoding: utf-8
 
 Version = '1.02'
+Myname = 'osf'
 TREES = %w{TEXMFMAIN TEXMFLOCAL TEXMFHOME}
-MYNAME = 'osf'
 
-Help = 
+Help =
 <<'DOC'
 = osf - generate oldstyle version of font(s)
 
@@ -111,11 +111,15 @@ the txfonts and the pxfonts:
    \end{document}
 
 = Author
-[Wybo Dekker](wybo@dekkerdocumenten.nl)
+[Wybo Dekker](wybodekker@me.com)
 
 = Copyright
 Released under the [GNU General Public License](www.gnu.org/copyleft/gpl.html)
 DOC
+
+def help
+  system("echo \"#{Help}\" | less -P#{Myname}-#{Version.tr('.','·')}")
+end
 
 require 'optparse'
 require 'fileutils'; include FileUtils
@@ -131,12 +135,17 @@ end
 
 def handle_options
    ARGV.options do |opts|
-      opts.banner = "#{::MYNAME} - generate oldstyle version of font(s)\n\n"
-      opts.banner << "Usage: #{::MYNAME} [options] [virfont [osfont]]\n\n" 
-      opts.banner << "    virfont : name of the font to be converted\n"
-      opts.banner << "    osfont  : name of font containing oldstyle digits\n\n"
-      opts.separator "Without arguments, arguments are taken from the data section"
-      opts.separator "Data section currently defines all txfonts and pxfonts\n"
+      opts.banner = <<~EOD
+	#{Myname} - generate oldstyle version of font(s)
+	Usage: #{Myname} [options] [virfont [osfont]] 
+
+	    virfont : name of font to be converted
+	     osfont : name of font containing oldstyle digits
+
+	Without arguments, arguments are taken from the data section
+	which currently defines all txfonts and pxfonts
+
+	EOD
       opts.summary_width=23 # 3x8-1
       opts.summary_indent=''
    
@@ -148,7 +157,7 @@ def handle_options
       end
    
       opts.on('-H','--help','show full documentation (use less!) and exit') do
-         puts Help
+         help
          exit
       end
    
@@ -168,7 +177,7 @@ def handle_options
       end
 
       opts.on('-I','—') do
-         system("instscript #{MYNAME}") or
+         system("instscript #{Myname}") or
             die 'the -I option is for developers only'
          exit
       end
@@ -213,7 +222,7 @@ end
 
 def findfont(name)
    font = `kpsewhich #{name}.vf`.chomp
-   font == '' and raise(RuntimeError,"Could not find #{name}.vf",::MYNAME)
+   font == '' and raise(RuntimeError,"Could not find #{name}.vf",::Myname)
    return File.basename(font,'.vf'), File.dirname(font)
 end
 
@@ -281,7 +290,7 @@ def convert_font(collection,font,oldstylefont)
       vfdir = d.sub(/@/,'vf')
       tfmdir = d.sub(/@/,'tfm')
       mkdir_p(vfdir) or
-         raise(RuntimeError,"Could not create directory #{dir}",::MYNAME)
+         raise(RuntimeError,"Could not create directory #{dir}",::Myname)
       mkdir_p(tfmdir)
    end
    # the new vpl file:
@@ -365,11 +374,11 @@ handle_options
 if @tree
    @tree.sub!(/^~/,ENV['HOME'])
    FileTest.exist?(@tree)      or
-      raise(RuntimeError,"The TeX directory #{@tree} does not exist",MYNAME)
+      raise(RuntimeError,"The TeX directory #{@tree} does not exist",Myname)
    File.stat(@tree).directory? or
-      raise(RuntimeError,"#{@tree} is not a directory",MYNAME)
+      raise(RuntimeError,"#{@tree} is not a directory",Myname)
    FileTest.writable?(@tree)   or
-      raise(RuntimeError,"The TeX directory #{@tree} is not writable",MYNAME)
+      raise(RuntimeError,"The TeX directory #{@tree} is not writable",Myname)
 else
    TREES.each { |tree|
       tree = `kpsewhich --expand-var '$#{tree}'`.chomp
@@ -379,7 +388,7 @@ else
       end
    }
    @tree or raise(RuntimeError,
-      "I could not find a writable TeX tree;\nI tried "+ TREES.join(', '),MYNAME)
+      "I could not find a writable TeX tree;\nI tried "+ TREES.join(', '),Myname)
 end
 
 @devnull = @verbose ? '' : '2>/dev/null'
@@ -396,13 +405,13 @@ if ARGV.size > 0   # one or two arguments, say pxr (and pcxr):
    font,dir = findfont(ARGV[0])
    # pxr, .../vf/public/pxfonts
    has_oldstyle_digits("#{dir}/#{font}.vf") and
-      raise(RuntimeError,"#{font} has oldstyle digits already",MYNAME)
+      raise(RuntimeError,"#{font} has oldstyle digits already",Myname)
    
    if ARGV[1]
       osfont,osdir = findfont(ARGV[1])
       # pcxr, .../vf/public/pxfonts
       has_oldstyle_digits("#{osdir}/#{osfont}.vf") or
-         raise(RuntimeError,"#{osfont} has no oldstyle digits",MYNAME)
+         raise(RuntimeError,"#{osfont} has no oldstyle digits",Myname)
    else
       # no oldstyle font given: propose one
       osdir = dir
@@ -466,7 +475,7 @@ else
    puts "Converting #{collection}" if @verbose
    latexdir = "#{@tree}/tex/latex/osf-#{collection}" 
    mkdir_p(latexdir) or
-      raise(RuntimeError,"Could not create directory #{latexdir}",MYNAME)
+      raise(RuntimeError,"Could not create directory #{latexdir}",Myname)
    DATA.each { |line|
       break if line.chomp == collection
    }
@@ -483,11 +492,11 @@ else
          # roman/sans family
          roman_sans.push(pat[0])
          fd =~ /^t1/ or
-            raise(RuntimeError,".fd filename must start with 't1'",MYNAME)
+            raise(RuntimeError,".fd filename must start with 't1'",Myname)
          infd = `kpsewhich #{fd}.fd`.chomp
-         raise(RuntimeError,"Could not find #{fd}.fd",MYNAME) if fd == ''
+         raise(RuntimeError,"Could not find #{fd}.fd",Myname) if fd == ''
          outfd = "#{latexdir}/#{fd.sub(/^t1/,'t1osf-')}.fd"
-         out = open(outfd,'w') or raise(RuntimeError,"Could not write to #{outfd}",MYNAME)
+         out = open(outfd,'w') or raise(RuntimeError,"Could not write to #{outfd}",Myname)
          list outfd
          open(infd).each { |l| 
             # put prefix before all patterns:
